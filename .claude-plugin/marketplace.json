@@ -1,18 +1,18 @@
 {
-  "name": "cc-config-market",
+  "name": "claude-statusline-market",
   "owner": { "name": "Lxcardoza993" },
   "description": "Shared Claude Code configuration: status line, auto-compact, session-start health check.",
   "version": "1.0.0",
   "plugins": [
     {
-      "name": "cc-config",
-      "displayName": "CC Config",
+      "name": "claude-statusline",
+      "displayName": "Claude Statusline",
       "description": "Status line (git/model/context%/subagents) + auto-compact at 50% + session-start health check.",
       "version": "1.0.0",
-      "source": "./cc-config",
+      "source": "./claude-statusline",
       "author": { "name": "Lxcardoza993" },
-      "homepage": "https://github.com/Lxcardoza993/claude-code-config",
-      "repository": "https://github.com/Lxcardoza993/claude-code-config",
+      "homepage": "https://github.com/Lxcardoza993/Claude-statusline",
+      "repository": "https://github.com/Lxcardoza993/Claude-statusline",
       "license": "MIT"
     }
   ]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Claude Code config healthcheck。
-- 默认(手动 / /cc-config:healthcheck):全检含 binary grep,人类报告,exit 0/1。
+- 默认(手动 / /claude-statusline:healthcheck):全检含 binary grep,人类报告,exit 0/1。
 - --hook(SessionStart 调用):只跑快检(跳过 binary grep),输出 JSON,不 block;
   全过 suppressOutput,有回退则 additionalContext 注入警告让模型提示修复。
 
@@ -49,7 +49,7 @@ def run_checks(fast_only=False):
             check(n > 0, f"binary recognizes {var}",
                   f"{n} hits" if n >= 0 else "grep failed")
     elif fast_only:
-        check(True, "binary env-var grep (skipped in hook mode)", "run /cc-config:healthcheck for full check")
+        check(True, "binary env-var grep (skipped in hook mode)", "run /claude-statusline:healthcheck for full check")
 
     # 3. statusline.py 存在且能跑(输出含 ctx)
     sl_exists = os.path.exists(STATUSLINE)
@@ -111,9 +111,9 @@ def main():
             print(json.dumps({"suppressOutput": True}))
         else:
             lines = [f"  ❌ {m}" + (f" [{d}]" if d else "") for _, m, d in fails]
-            msg = ("[cc-config] 健康检查发现回退(可能是 CC 更新或 profile 切换所致):\n"
+            msg = ("[claude-statusline] 健康检查发现回退(可能是 CC 更新或 profile 切换所致):\n"
                    + "\n".join(lines)
-                   + "\n\n运行 /cc-config:install 重新接线修复。")
+                   + "\n\n运行 /claude-statusline:install 重新接线修复。")
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",

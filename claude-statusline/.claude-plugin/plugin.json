@@ -1,11 +1,11 @@
 {
-  "name": "cc-config",
-  "displayName": "CC Config",
+  "name": "claude-statusline",
+  "displayName": "Claude Statusline",
   "description": "Shared status line (git/model/context%/subagents) + auto-compact at 50% + session-start health check for Claude Code.",
   "version": "1.0.0",
   "author": { "name": "Lxcardoza993" },
-  "homepage": "https://github.com/Lxcardoza993/claude-code-config",
-  "repository": "https://github.com/Lxcardoza993/claude-code-config",
+  "homepage": "https://github.com/Lxcardoza993/Claude-statusline",
+  "repository": "https://github.com/Lxcardoza993/Claude-statusline",
   "license": "MIT",
   "hooks": "./hooks/hooks.json",
   "commands": ["./commands/"]

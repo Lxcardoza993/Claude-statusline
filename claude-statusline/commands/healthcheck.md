@@ -15,4 +15,4 @@ Show the user the ✅/❌ report. Key checks:
 - `~/.claude/settings.json` has `PCT_OVERRIDE=50`, `WINDOW=300000`, `autoCompactEnabled`, and `statusLine` wired
 - every cc-switch profile has the same (if cc-switch is used)
 
-If any ❌: explain the likely cause (a CC update renamed an env var, or a cc-switch profile switch wiped the fields) and suggest running `/cc-config:install` to repair. Note that the SessionStart hook already runs a fast version of this check automatically every session — this command is the thorough version including the binary grep.
+If any ❌: explain the likely cause (a CC update renamed an env var, or a cc-switch profile switch wiped the fields) and suggest running `/claude-statusline:install` to repair. Note that the SessionStart hook already runs a fast version of this check automatically every session — this command is the thorough version including the binary grep.

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# One-shot installer for the CC Config shared customizations (non-plugin path).
+# One-shot installer for the Claude Statusline shared customizations (non-plugin path).
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Lxcardoza993/claude-code-config/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Lxcardoza993/Claude-statusline/main/install.sh | bash
 #   # or clone and run: ./install.sh
 #
-# For the richer path (auto health-check hook + /cc-config commands + updates),
+# For the richer path (auto health-check hook + /claude-statusline commands + updates),
 # install as a Claude Code plugin instead — see README.md.
 set -euo pipefail
 
-REPO="Lxcardoza993/claude-code-config"
+REPO="Lxcardoza993/Claude-statusline"
 BRANCH="main"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -22,10 +22,10 @@ git clone --depth 1 -b "$BRANCH" "https://github.com/$REPO.git" "$TMP/repo" 2>/d
   || git clone --depth 1 "https://github.com/$REPO.git" "$TMP/repo"
 
 echo "==> Running installer (copies statusline.py + wires settings.json)..."
-python3 "$TMP/repo/cc-config/scripts/install.py"
+python3 "$TMP/repo/claude-statusline/scripts/install.py"
 
 echo
 echo "==> Done. Restart Claude Code for the env vars to take effect."
-echo "    Tip: for an auto health-check hook and /cc-config commands, install as a plugin:"
-echo "      /plugin marketplace add Lxcardoza993/claude-code-config"
-echo "      /plugin install cc-config@cc-config-market"
+echo "    Tip: for an auto health-check hook and /claude-statusline commands, install as a plugin:"
+echo "      /plugin marketplace add Lxcardoza993/Claude-statusline"
+echo "      /plugin install claude-statusline@claude-statusline-market"
