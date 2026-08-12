@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 """Claude Code statusLine: git 分支(±改动) | 模型名 | 上下文 % + 10格进度条 | 运行中子agent数。
 轻量、纯 stdlib、无外部依赖。stdin 收 JSON,stdout 输出一行。
-可移植:路径走 $CLAUDE_CONFIG_DIR(默认 ~/.claude),不硬编码用户家目录。"""
+可移植:路径走 $CLAUDE_CONFIG_DIR(默认 ~/.claude),不硬编码用户家目录。
+
+性能优化(2026-08-13):
+- git 段:非 git 目录零 fork(向上 stat 找 .git);合并为单次 `git status -b --porcelain`
+  (原 rev-parse + status 两次 git 调用→1 次)。多会话叠加刷新时降 fork 峰值最明显。
+- subagent 段:全局 total 走 /tmp 文件缓存(TTL 10s),多会话刷新共享同一次扫描,
+  避免每次全量 glob projects 树;本会话 here 仍实时(只扫单目录)。"""
 import sys, json, os, glob, time, subprocess
 
 CLAUDE_CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 PROJECTS_ROOT = os.path.join(CLAUDE_CONFIG_DIR, "projects")
+
+# 全局 total 缓存:跨会话一致且扫描最贵,故多会话刷新共享。here 本会话独立,仍实时算。
+CACHE_PATH = "/tmp/cc-statusline-cache.json"
+CACHE_TTL = 10
 
 C_CLEAN  = "\033[38;5;78m"   # 绿色:干净分支
 C_DIRTY  = "\033[38;5;214m"  # 橙色:有改动
@@ -25,22 +35,44 @@ SEP      = f" {C_SEP}|{RESET} "
 RUNNING_WINDOW = 90
 
 
-def git_segment(cwd):
+def _git_root(cwd):
+    """向上找最近含 .git 的目录;非 git 目录返回 None。用纯 stat 判断,
+    避免在非 git 目录(如 /home/li)白 fork 一次 git rev-parse 才知道不是仓库。"""
     try:
-        branch = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=1,
-        )
-        if branch.returncode != 0:
+        cur = os.path.abspath(cwd)
+    except Exception:
+        return None
+    while True:
+        if os.path.isdir(os.path.join(cur, ".git")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
             return None
-        name = branch.stdout.strip() or "HEAD"
-        dirty = subprocess.run(
-            ["git", "-C", cwd, "status", "--porcelain"],
-            capture_output=True, text=True, timeout=1,
+        cur = parent
+
+
+def git_segment(cwd):
+    root = _git_root(cwd)
+    if not root:
+        return None
+    try:
+        # 单次调用同时拿分支名 + 脏状态(替代原 rev-parse + status --porcelain 两次)。
+        st = subprocess.run(
+            ["git", "-C", root, "status", "-b", "--porcelain"],
+            capture_output=True, text=True, timeout=1.5,
         )
-        if dirty.stdout.strip():
-            return f"{C_DIRTY}⎇ {name}*{RESET}"   # 有未提交改动
-        return f"{C_CLEAN}⎇ {name}{RESET}"
+        if st.returncode != 0 or not st.stdout:
+            return None
+        # 首行形如 "## main" / "## main...origin/main [ahead 2]" / "## HEAD (no branch)"
+        first = st.stdout.split("\n", 1)[0].strip()
+        name = first[2:].strip() if first.startswith("##") else ""
+        if "..." in name:
+            name = name.split("...", 1)[0].strip()
+        if not name or "no branch" in name:
+            name = "HEAD"
+        # 脏 = 除首行 ## 外还有任意改动行
+        dirty = any(ln and not ln.startswith("##") for ln in st.stdout.splitlines()[1:])
+        return f"{C_DIRTY}⎇ {name}*{RESET}" if dirty else f"{C_CLEAN}⎇ {name}{RESET}"
     except Exception:
         return None
 
@@ -68,24 +100,55 @@ def count_running(subagents_dir, now):
     return running
 
 
-def subagent_segment(data):
-    """本会话运行中子agent数 / 全部会话运行中子agent总数,如 1/3。"""
-    now = time.time()
+def _read_cache():
+    try:
+        with open(CACHE_PATH) as f:
+            d = json.load(f)
+        if time.time() - float(d.get("ts", 0)) <= CACHE_TTL:
+            return d
+    except Exception:
+        pass
+    return None
 
-    # 本会话:transcript_path 去掉 .jsonl 拼 /subagents 即本会话子agent目录。
-    here = 0
-    tp = data.get("transcript_path")
-    if tp:
-        here = count_running(os.path.splitext(tp)[0] + "/subagents", now)
 
-    # 全局:遍历 projects/<工程>/<会话>/subagents 下所有会话。
+def _write_cache(d):
+    # tmp 带 PID,避免多会话同写撞同一临时文件;os.replace 原子替换。
+    try:
+        tmp = f"{CACHE_PATH}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(d, f)
+        os.replace(tmp, CACHE_PATH)
+    except Exception:
+        pass
+
+
+def _cached_total(now):
+    """全局运行中子agent总数:跨会话一致,走文件缓存;过期才全量扫 projects 树。"""
+    c = _read_cache()
+    if c is not None and "total" in c:
+        try:
+            return int(c["total"])
+        except (TypeError, ValueError):
+            pass
     total = 0
     try:
         for sdir in glob.glob(os.path.join(PROJECTS_ROOT, "*", "*", "subagents")):
             total += count_running(sdir, now)
     except Exception:
         pass
+    _write_cache({"ts": now, "total": total})
+    return total
 
+
+def subagent_segment(data):
+    """本会话运行中子agent数 / 全部会话运行中子agent总数,如 1/3。
+    here 实时(只扫本会话单目录,便宜);total 走缓存(跨会话一致+扫描最贵)。"""
+    now = time.time()
+    here = 0
+    tp = data.get("transcript_path")
+    if tp:
+        here = count_running(os.path.splitext(tp)[0] + "/subagents", now)
+    total = _cached_total(now)
     if total == 0 and here == 0:
         return None
     return f"{C_AGENT}⛬ {here}/{total}{RESET}"
