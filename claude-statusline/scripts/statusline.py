@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
-"""Claude Code statusLine: git 分支(±改动) | 模型名 | 上下文 % + 10格进度条 | 运行中子agent数。
+"""Claude Code statusLine: git 分支(±改动) | 模型名 | 上下文 % + 15格进度条 | 运行中子agent数。
 轻量、纯 stdlib、无外部依赖。stdin 收 JSON,stdout 输出一行。
 可移植:路径走 $CLAUDE_CONFIG_DIR(默认 ~/.claude),不硬编码用户家目录。
 
 性能优化(2026-08-13):
 - git 段:非 git 目录零 fork(向上 stat 找 .git);合并为单次 `git status -b --porcelain`
   (原 rev-parse + status 两次 git 调用→1 次)。多会话叠加刷新时降 fork 峰值最明显。
-- subagent 段:全局 total 走 /tmp 文件缓存(TTL 10s),多会话刷新共享同一次扫描,
-  避免每次全量 glob projects 树;本会话 here 仍实时(只扫单目录)。"""
-import sys, json, os, glob, time, subprocess
+- subagent 段:全局 total 走临时目录文件缓存(TTL 10s),多会话刷新共享同一次扫描,
+  避免每次全量 glob projects 树;本会话 here 仍实时(只扫单目录)。
+
+Windows 移植(2026-10-16 恢复时):
+- stdout 强制 UTF-8(Windows 管道默认 GBK,▰▱⎇⛬ 会 UnicodeEncodeError)
+- /tmp 缓存改 tempfile.gettempdir()(原版路径来自 GitHub Claude-statusline 仓)
+"""
+import sys, json, os, glob, time, subprocess, tempfile
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 CLAUDE_CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 PROJECTS_ROOT = os.path.join(CLAUDE_CONFIG_DIR, "projects")
 
 # 全局 total 缓存:跨会话一致且扫描最贵,故多会话刷新共享。here 本会话独立,仍实时算。
-CACHE_PATH = "/tmp/cc-statusline-cache.json"
+CACHE_PATH = os.path.join(tempfile.gettempdir(), "cc-statusline-cache.json")
 CACHE_TTL = 10
 
+BAR_CELLS = 15  # 进度条总格数(2026-10-17 用户要求:20→17→15)
 C_CLEAN  = "\033[38;5;78m"   # 绿色:干净分支
 C_DIRTY  = "\033[38;5;214m"  # 橙色:有改动
 C_MODEL  = "\033[38;5;245m"  # 灰色:模型名
+C_CWD    = "\033[38;5;221m"  # 暖黄:目录名(2026-10-17 用户最终选定 221)
 C_AGENT  = "\033[38;5;176m"  # 淡紫:子agent计数
 C_SEP    = "\033[38;5;240m"  # 暗灰:分隔符
 C_CTX_OK = "\033[38;5;78m"   # 绿色:离压缩点还远
@@ -37,7 +49,7 @@ RUNNING_WINDOW = 90
 
 def _git_root(cwd):
     """向上找最近含 .git 的目录;非 git 目录返回 None。用纯 stat 判断,
-    避免在非 git 目录(如 /home/li)白 fork 一次 git rev-parse 才知道不是仓库。"""
+    避免在非 git 目录(如 ~)白 fork 一次 git rev-parse 才知道不是仓库。"""
     try:
         cur = os.path.abspath(cwd)
     except Exception:
@@ -102,7 +114,7 @@ def count_running(subagents_dir, now):
 
 def _read_cache():
     try:
-        with open(CACHE_PATH) as f:
+        with open(CACHE_PATH, encoding="utf-8") as f:
             d = json.load(f)
         if time.time() - float(d.get("ts", 0)) <= CACHE_TTL:
             return d
@@ -115,7 +127,7 @@ def _write_cache(d):
     # tmp 带 PID,避免多会话同写撞同一临时文件;os.replace 原子替换。
     try:
         tmp = f"{CACHE_PATH}.{os.getpid()}.tmp"
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f)
         os.replace(tmp, CACHE_PATH)
     except Exception:
@@ -233,13 +245,24 @@ def context_segment(data):
     warn_pct = trigger_pct * 0.9
 
     col = C_CTX_OVER if pct >= trigger_pct else (C_CTX_HI if pct >= warn_pct else C_CTX_OK)
-    filled = max(0, min(10, int(pct / 10 + 0.5)))
-    empty = 10 - filled
+    filled = max(0, min(BAR_CELLS, int(pct * BAR_CELLS / 100 + 0.5)))
+    empty = BAR_CELLS - filled
     bar = col + "▰" * filled
     if empty:
         bar += C_DARK + "▱" * empty
     bar += RESET
     return f"{bar}  {col}ctx {pct:.0f}%{RESET}"
+
+
+def cwd_segment(cwd):
+    """目录段:只显示当前目录名(全路径太长会挤掉其他段)。"""
+    if not cwd:
+        return None
+    try:
+        name = os.path.basename(os.path.normpath(str(cwd))) or str(cwd)
+    except Exception:
+        name = str(cwd)
+    return f"{C_CWD}{name}{RESET}"
 
 
 def main():
@@ -256,6 +279,10 @@ def main():
     model = data.get("model", {}).get("display_name") or "?"
 
     segments = []
+
+    w = cwd_segment(cwd)
+    if w:
+        segments.append(w)
 
     g = git_segment(cwd)
     if g:

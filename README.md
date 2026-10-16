@@ -14,18 +14,19 @@ A polished status line for Claude Code — **git branch · model · live context
 
 ![Claude Statusline in action](docs/statusline-demo.png)
 
-The single line at the bottom of your Claude Code terminal — git branch · model · context % with a color-coded bar · running subagents:
+The single line at the bottom of your Claude Code terminal — current dir · git branch · model · context % with a color-coded bar · running subagents:
 
 | Segment | Meaning |
 |---|---|
+| `my-project` | current directory name |
 | `⎇ main` | current git branch (`*` when dirty) |
 | `Opus 4.8` | active model |
-| `▰▰▰▰▱▱▱▱▱▱  ctx 42%` | context fill — bar turns **yellow ≥ 40 %**, **red ≥ 50 %** (auto-compact kicks in) |
+| `▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱  ctx 42%` | context fill (15 cells) — bar turns **yellow ≥ 40 %**, **red ≥ 50 %** (auto-compact kicks in) |
 | `◬ 1/3` | running subagents — **1 in this session / 3 across all sessions** (recursive over workflow subagents) |
 
 ## ✨ Features
 
-- **One-line status line** — git branch (±dirty) · model · context % with a 10-cell color-coded bar · running subagents (this session / global, recursive over workflow subagents)
+- **One-line status line** — current dir · git branch (±dirty) · model · context % with a 15-cell color-coded bar · running subagents (this session / global, recursive over workflow subagents)
 - **Auto-compact at 50 %** — compacts context at 50 % instead of the default ~80 %, so you keep more room to work
 - **Session-start health check** — a fast hook verifies your config on every session start; flags regressions from CC updates or cc-switch profile switches before they bite
 - **cc-switch safe** — propagates env vars + status line into every profile, so switching profiles no longer wipes your setup
